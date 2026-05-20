@@ -413,7 +413,7 @@ def show_mana_check():
     with col_input:
         st.subheader("Decklist")
         # ── Moxfield import ──────────────────────────────────────────────
-        with st.expander("📥 Import from Moxfield", expanded=False):
+        with st.expander("Import from Moxfield", expanded=False):
             mox_col1, mox_col2 = st.columns([0.75, 0.25])
             with mox_col1:
                 mox_url = st.text_input(
