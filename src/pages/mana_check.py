@@ -370,10 +370,6 @@ def _hypergeom_at_least(N: int, K: int, n: int, k: int) -> float:
 
 def show_mana_check():
     st.markdown('<h1 class="page-title">Mana Base Calculator</h1>', unsafe_allow_html=True)
-    st.caption(
-        "Paste your decklist to get recommended land count, color source checks, "
-        "and per-spell casting probability on curve."
-    )
 
     col_input, col_settings = st.columns([0.62, 0.38])
 
