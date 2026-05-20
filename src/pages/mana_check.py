@@ -913,26 +913,62 @@ def show_mana_check():
             )
 
     # ── Methodology ───────────────────────────────────────────────────────────
-    with st.expander("Methodology"):
-        st.markdown(f"""
-**Hypergeometric distribution** — correct model for sampling without replacement.
+    with st.expander("How to read this page"):
+        st.markdown("""
+### What you're looking at
 
-Cards seen by turn *N* ({'on draw' if on_draw else 'on play'}): 7 + {'N' if on_draw else 'N−1'}.
+For every spell in your deck, this page asks one question:
+**"What are the chances I can cast it on the turn its mana cost suggests?"**
+(turn 2 for a 2-cost spell, turn 3 for a 3-cost, and so on).
 
-**Colored pips only (e.g. {{U}}, {{U}}{{U}}):**
-P = P(draw ≥ k blue sources). No separate land check — an Island satisfies both the pip and the land drop simultaneously, so multiplying them would double-count failures.
+Green = comfortable. Yellow = workable but tight. Red = you'll often be stuck.
 
-**Generic mana in cost (e.g. {{1}}{{U}}, {{2}}):**
-P = P(draw ≥ k colored sources) × P(draw ≥ CMC total mana sources).
-Total mana sources = lands + mana-producing permanents (Mox Diamond etc.).
+---
 
-Multi-color is treated as independent per color (slight underestimate when colors share dual lands).
+### What's a cantrip?
 
-**Land recommendation**: `19.59 + 1.90 × avgCMC − cantrip_adjustment`
-Frank Karsten 2022 regression. Cantrips: −{list(CANTRIP_SAVINGS.values())[0]} per copy.
+A **cantrip** is a cheap spell (usually 1 mana) that draws you a card.
+Examples: Brainstorm, Portent, Opt, Sleight of Hand, Impulse, Ponder.
 
-**Source minimums** (Karsten, 90%, 60 cards, on the play):
-T1 1-pip → 14  ·  T2 1-pip → 13  ·  T2 2-pip → 21  ·  T3 1-pip → 12  ·  T3 2-pip → 18  ·  T3 3-pip → 23
+Cantrips effectively *find* missing lands for you, so a deck full of them
+can run **fewer lands** and still hit its drops on time. The recommended
+land count goes down by about **0.28 lands per cantrip** in your deck —
+that's the official Karsten adjustment.
+
+Slower draw spells (Accumulated Knowledge, Careful Study, Scroll Rack)
+count as half a cantrip (0.14 each).
+
+---
+
+### What "bottleneck" means
+
+When a spell sits below your target, the **Bottleneck** column tells you
+*which single thing* is failing most often — either a color (e.g. "White
+sources 70%") or land count ("Land count 82%").
+
+Two things have to go right to cast `{1}{W}` on turn 2: you need both
+**2 lands** AND **a white source**. If lands hit 82% and whites hit 75%,
+your overall chance is 82% × 75% ≈ **62%**, not 75%. The bottleneck is
+"white" because that's the weakest link — but fixing only that gets you
+to 82%, not to 100%.
+
+---
+
+### Karsten's rule of thumb (60-card constructed, 90% target)
+
+| To cast | by Turn 1 | by Turn 2 | by Turn 3 | by Turn 4 |
+|---|:-:|:-:|:-:|:-:|
+| 1 colored pip (`{U}`, `{1}{U}`, …) | 14 sources | 13 | 12 | 11 |
+| 2 colored pips (`{U}{U}`, `{1}{U}{U}`) | — | 21 | 18 | 16 |
+| 3 colored pips (`{U}{U}{U}`) | — | — | 23 | 20 |
+
+If your *have* count in the Color Source Check is below the listed *need*,
+that spell's row will go yellow or red.
+
+Land count formula: `19.59 + 1.90 × avg mana value − 0.28 × cantrips`.
+
+Source: Frank Karsten, *"How Many Sources Do You Need to Consistently Cast
+Your Spells? A 2022 Update"* (TCGPlayer / ChannelFireball).
         """)
 
 
