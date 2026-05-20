@@ -264,6 +264,53 @@ def _scryfall_fetch(card_name: str) -> dict | None:
     return None
 
 
+def _moxfield_fetch(url: str) -> tuple[str, str] | tuple[None, str]:
+    """Fetch a Moxfield deck and return (decklist_text, deck_name).
+    On error returns (None, error_message).
+    Accepts URLs like https://moxfield.com/decks/<id> or just the id."""
+    import re as _re
+    m = _re.search(r"(?:moxfield\.com/decks/)?([A-Za-z0-9_-]{10,})", url.strip())
+    if not m:
+        return None, "Could not parse Moxfield URL or deck ID."
+    deck_id = m.group(1)
+    api_url = f"https://api2.moxfield.com/v3/decks/all/{deck_id}"
+    req = urllib.request.Request(api_url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return None, f"Moxfield returned HTTP {e.code} (deck private or not found?)."
+    except Exception as e:
+        return None, f"Moxfield fetch failed: {type(e).__name__}: {e}"
+
+    deck_name = data.get("name", deck_id)
+    boards = data.get("boards", {}) or {}
+    lines: list[str] = []
+    for slug, entry in (boards.get("mainboard", {}) or {}).get("cards", {}).items():
+        qty = entry.get("quantity", 0)
+        card = entry.get("card", {}) or {}
+        name = card.get("name", slug)
+        if qty > 0:
+            lines.append(f"{qty} {name}")
+    sb = (boards.get("sideboard", {}) or {}).get("cards", {})
+    if sb:
+        lines.append("")
+        lines.append("SIDEBOARD:")
+        for slug, entry in sb.items():
+            qty = entry.get("quantity", 0)
+            card = entry.get("card", {}) or {}
+            name = card.get("name", slug)
+            if qty > 0:
+                lines.append(f"SB: {qty} {name}")
+    if not lines:
+        return None, f"Deck '{deck_name}' has no cards (private?)."
+    return "\n".join(lines), deck_name
+
+
 def _parse_decklist(text: str) -> list[tuple[int, str]]:
     cards = []
     for line in text.strip().splitlines():
@@ -365,6 +412,26 @@ def show_mana_check():
 
     with col_input:
         st.subheader("Decklist")
+        # ── Moxfield import ──────────────────────────────────────────────
+        with st.expander("📥 Import from Moxfield", expanded=False):
+            mox_col1, mox_col2 = st.columns([0.75, 0.25])
+            with mox_col1:
+                mox_url = st.text_input(
+                    "Moxfield URL or deck ID",
+                    placeholder="https://moxfield.com/decks/Zxt1Lmdx50Sq5NVPsTDnQQ",
+                    label_visibility="collapsed",
+                )
+            with mox_col2:
+                mox_btn = st.button("Import", use_container_width=True)
+            if mox_btn and mox_url.strip():
+                with st.spinner("Fetching from Moxfield…"):
+                    imported_text, info = _moxfield_fetch(mox_url)
+                if imported_text:
+                    st.session_state["mana_check_decklist"] = imported_text
+                    st.success(f"Loaded: **{info}** ({imported_text.count(chr(10)) + 1} lines)")
+                else:
+                    st.error(info)
+
         st.caption("One card per line: `4 Dark Ritual`  ·  SB: lines are ignored.")
         st.markdown(
             """
@@ -380,7 +447,8 @@ def show_mana_check():
         )
         decklist_text = st.text_area(
             "Decklist",
-            height=340,
+            height=170,
+            key="mana_check_decklist",
             placeholder=(
                 "4 Dark Ritual\n"
                 "4 Hypnotic Specter\n"
