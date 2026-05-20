@@ -649,11 +649,9 @@ def show_mana_check():
 
     if used_colors:
         st.markdown("### Color Source Check")
-        caption = "Karsten minimums for 90% consistency on the play, 60 cards. Green = threshold met · Red = below threshold."
         if mana_perms:
             perm_names = ", ".join(f"{q}× {n}" for q, n, _ in mana_perms)
-            caption += f"  ·  Sources include mana-producing permanents: {perm_names}."
-        st.caption(caption)
+            st.caption(f"Sources include mana-producing permanents: {perm_names}.")
 
         _bg     = THEME["surface"]
         _border = THEME["border"]
