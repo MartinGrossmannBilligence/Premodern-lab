@@ -366,6 +366,18 @@ def show_mana_check():
     with col_input:
         st.subheader("Decklist")
         st.caption("One card per line: `4 Dark Ritual`  ·  SB: lines are ignored.")
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stTextArea"] textarea {
+                font-size: 12px !important;
+                line-height: 1.35 !important;
+                font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         decklist_text = st.text_area(
             "Decklist",
             height=340,
