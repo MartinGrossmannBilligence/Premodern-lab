@@ -747,12 +747,12 @@ def show_mana_check():
         if use_alt_costs and key in NEVER_CAST:
             never_cast_rows += (
                 f"<tr style='border-bottom:1px solid {_bg2};opacity:0.55;'>"
-                f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
-                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
-                f"<td style='padding:6px 10px;'>{mc_html}</td>"
-                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};font-style:italic;'>"
+                f"<td style='padding:3px 10px;font-size:14px;'>{qty}× {name}</td>"
+                f"<td style='padding:3px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
+                f"<td style='padding:3px 10px;'>{mc_html}</td>"
+                f"<td style='padding:3px 10px;font-size:13px;color:{_mut};font-style:italic;'>"
                 f"discard fodder</td>"
-                f"<td style='padding:6px 10px;font-size:12px;color:{_fnt};'>never cast</td>"
+                f"<td style='padding:3px 10px;font-size:12px;color:{_fnt};'>never cast</td>"
                 f"</tr>"
             )
             continue
@@ -801,12 +801,12 @@ def show_mana_check():
 
             table_rows += (
                 f"<tr style='border-bottom:1px solid {_bg2};'>"
-                f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
-                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
-                f"<td style='padding:6px 10px;'>{mc_html}</td>"
-                f"<td style='padding:6px 10px;font-size:15px;font-weight:700;color:{prob_color};'>"
+                f"<td style='padding:3px 10px;font-size:14px;'>{qty}× {name}</td>"
+                f"<td style='padding:3px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
+                f"<td style='padding:3px 10px;'>{mc_html}</td>"
+                f"<td style='padding:3px 10px;font-size:15px;font-weight:700;color:{prob_color};'>"
                 f"{prob_text}</td>"
-                f"<td style='padding:6px 10px;font-size:12px;color:{_mut};'>{bn}</td>"
+                f"<td style='padding:3px 10px;font-size:12px;color:{_mut};'>{bn}</td>"
                 f"</tr>"
             )
             continue
@@ -814,12 +814,12 @@ def show_mana_check():
         if cmc == 0:
             table_rows += (
                 f"<tr style='border-bottom:1px solid {_bg2};'>"
-                f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
-                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>0</td>"
-                f"<td style='padding:6px 10px;'>{mc_html}</td>"
-                f"<td style='padding:6px 10px;font-size:14px;font-weight:600;"
+                f"<td style='padding:3px 10px;font-size:14px;'>{qty}× {name}</td>"
+                f"<td style='padding:3px 10px;font-size:13px;color:{_mut};text-align:center;'>0</td>"
+                f"<td style='padding:3px 10px;'>{mc_html}</td>"
+                f"<td style='padding:3px 10px;font-size:14px;font-weight:600;"
                 f"color:{THEME['success']};'>100%</td>"
-                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};'>—</td>"
+                f"<td style='padding:3px 10px;font-size:13px;color:{_mut};'>—</td>"
                 f"</tr>"
             )
             continue
@@ -881,19 +881,19 @@ def show_mana_check():
 
         table_rows += (
             f"<tr style='border-bottom:1px solid {_bg2};'>"
-            f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
-            f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
-            f"<td style='padding:6px 10px;'>{mc_html}</td>"
-            f"<td style='padding:6px 10px;font-size:15px;font-weight:700;color:{prob_color};'>"
+            f"<td style='padding:3px 10px;font-size:14px;'>{qty}× {name}</td>"
+            f"<td style='padding:3px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
+            f"<td style='padding:3px 10px;'>{mc_html}</td>"
+            f"<td style='padding:3px 10px;font-size:15px;font-weight:700;color:{prob_color};'>"
             f"{combined:.1%}</td>"
-            f"<td style='padding:6px 10px;font-size:13px;'>{bottleneck_html}</td>"
+            f"<td style='padding:3px 10px;font-size:13px;'>{bottleneck_html}</td>"
             f"</tr>"
         )
 
     if table_rows:
         headers = ["Card", "CMC", "Mana Cost", "P (on curve)", "Bottleneck"]
         header_html = "".join(
-            f"<th style='padding:7px 10px;text-align:left;border-bottom:1px solid {_brd};"
+            f"<th style='padding:5px 10px;text-align:left;border-bottom:1px solid {_brd};"
             f"color:{_fnt};font-size:12px;font-weight:500;'>{h}</th>"
             for h in headers
         )
