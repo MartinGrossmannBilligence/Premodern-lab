@@ -43,21 +43,60 @@ def mana_cost_html(pips: dict, size: int = 16) -> str:
         parts.extend([mana_img(c, size)] * count)
     return "".join(parts) or "—"
 
-# Frank Karsten: cheap cantrips allow playing fewer lands (~0.28 each)
+# Frank Karsten: cheap cantrips allow playing fewer lands (~0.28 each).
+# Premodern-legal only (Brainstorm is banned in Premodern; Ponder/Preordain/Serum
+# Visions are post-2003 sets but kept for non-Premodern decks).
 CANTRIP_SAVINGS = {
-    "brainstorm": 0.28,
+    "brainstorm": 0.28,          # banned in Premodern, legal in Legacy/Vintage
     "portent": 0.28,
     "opt": 0.28,
     "sleight of hand": 0.28,
     "impulse": 0.28,
-    "serum visions": 0.28,
-    "ponder": 0.28,
-    "preordain": 0.28,
+    "peek": 0.28,                # Premodern (Onslaught)
+    "serum visions": 0.28,       # post-Premodern
+    "ponder": 0.28,              # post-Premodern
+    "preordain": 0.28,           # post-Premodern
     "careful study": 0.14,
     "accumulated knowledge": 0.14,
     "telling time": 0.14,
     "scroll rack": 0.14,
     "lat-nam's legacy": 0.14,
+    "predict": 0.14,             # Premodern (Odyssey)
+    "foreshadow": 0.14,          # Premodern (Onslaught)
+}
+
+# Alternate-cost cards: when the "use alternate costs" toggle is on, override
+# the face-mana-cost probability with a resource-availability check.
+# Types:
+#   land_in_play  — need N copies of `land` in play (e.g. Gush bouncing 2 Islands)
+#   land_in_hand  — need N copies of `land` in hand, beyond what you've land-dropped
+#                   (e.g. Foil discarding Island + card; Thwart pitching 3 Islands)
+#   pitch_color   — need a card of `color` in hand to pitch (Misdirection, Unmask)
+#   conditional   — situational (Submerge needs opponent's Forest); shown as such
+ALT_COST_HANDLERS: dict[str, dict] = {
+    # Pitch / bounce blue
+    "gush":         {"label": "return 2 Islands", "type": "land_in_play", "land": "island", "count": 2, "turn": 3},
+    "foil":         {"label": "discard Island + card", "type": "land_in_hand", "land": "island", "count": 1, "turn": 2},
+    "daze":         {"label": "return Island", "type": "land_in_play", "land": "island", "count": 1, "turn": 1},
+    "thwart":       {"label": "pitch 3 Islands", "type": "land_in_hand", "land": "island", "count": 3, "turn": 3},
+    "misdirection": {"label": "pitch a blue spell", "type": "pitch_color", "color": "U", "turn": 3},
+    # Pitch black
+    "snuff out":    {"label": "4 life + pitch Swamp", "type": "land_in_hand", "land": "swamp", "count": 1, "turn": 1},
+    "unmask":       {"label": "pitch a black card", "type": "pitch_color", "color": "B", "turn": 2},
+    "contagion":    {"label": "pitch 2 black cards", "type": "pitch_color", "color": "B", "count": 2, "turn": 2},
+    # Conditional
+    "submerge":     {"label": "U if opp controls Forest", "type": "conditional", "color": "U", "turn": 1},
+    # Free if no lands in hand
+    "land grant":   {"label": "reveal hand if no lands", "type": "free_if_no_land", "turn": 1},
+}
+
+# Cards that are essentially never cast from hand in the deck's normal game plan.
+# When the alt-cost toggle is on, these are flagged "discard fodder / never cast"
+# and excluded from the casting probability table.
+NEVER_CAST: set[str] = {
+    "squee, goblin nabob",       # recurs from graveyard; only discarded, never cast
+    "krovikan horror",           # similar recursion role
+    "genesis",                    # recurring graveyard creature, rarely hard-cast
 }
 
 # Hardcoded produced_mana for all common Premodern lands.
@@ -283,7 +322,7 @@ def _hypergeom_at_least(N: int, K: int, n: int, k: int) -> float:
 
 
 def show_mana_check():
-    st.markdown('<h1 class="page-title">Mana Check</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="page-title">Mana Base Calculator</h1>', unsafe_allow_html=True)
     st.caption(
         "Paste your decklist to get recommended land count, color source checks, "
         "and per-spell casting probability on curve."
@@ -299,7 +338,6 @@ def show_mana_check():
             help="On the draw you see 1 extra card — slightly improves consistency.",
         )
         target_pct = st.slider("Target consistency", 50, 99, 90, format="%d%%")
-        deck_size = st.number_input("Deck size", min_value=40, max_value=100, value=60, step=1)
         manual_cantrips = st.toggle(
             "Set cantrip count manually",
             value=False,
@@ -315,6 +353,15 @@ def show_mana_check():
                 min_value=0, max_value=40, value=0, step=1,
                 help="Total copies of cheap draw/filter spells that reduce your land requirement by ~0.28 each.",
             )
+        use_alt_costs = st.toggle(
+            "Use alternate costs",
+            value=False,
+            help=(
+                "Evaluates pitch/bounce alt costs for cards like Gush (return 2 Islands), "
+                "Foil (discard Island + card), Daze, Snuff Out, Misdirection, Thwart. "
+                "Cards listed as discard fodder (Squee) are excluded from casting probability."
+            ),
+        )
 
     with col_input:
         st.subheader("Decklist")
@@ -332,7 +379,37 @@ def show_mana_check():
             ),
             label_visibility="collapsed",
         )
-        analyze_btn = st.button("Analyze Mana", type="primary")
+        st.markdown(
+            """
+            <style>
+            div.stButton > button[kind="primary"] {
+                background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 800;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                padding: 14px 28px;
+                border: none;
+                border-radius: 8px;
+                width: 100%;
+                box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+                transition: all 0.15s ease;
+            }
+            div.stButton > button[kind="primary"]:hover {
+                background: linear-gradient(135deg, #15803d 0%, #166534 100%);
+                box-shadow: 0 6px 20px rgba(22, 163, 74, 0.5);
+                transform: translateY(-1px);
+            }
+            div.stButton > button[kind="primary"]:active {
+                transform: translateY(0);
+                box-shadow: 0 2px 8px rgba(22, 163, 74, 0.4);
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        analyze_btn = st.button("⚡ Analyze Mana", type="primary")
 
     if not analyze_btn or not decklist_text.strip():
         _how_it_works()
@@ -343,6 +420,11 @@ def show_mana_check():
     if not raw_cards:
         st.error("Could not parse decklist. Each line must start with a number: `4 Card Name`.")
         return
+
+    # Deck size = total cards in maindeck (sideboard is excluded by the parser)
+    deck_size = sum(q for q, _ in raw_cards)
+    if deck_size < 40:
+        st.warning(f"Decklist has only {deck_size} cards — minimum legal deck size is 60 (Constructed) or 40 (Limited).")
 
     # ── Scryfall lookups ──────────────────────────────────────────────────────
     unique_names = list({name for _, name in raw_cards})
@@ -368,6 +450,8 @@ def show_mana_check():
     spells: list[tuple[int, str, float, dict]] = []     # (qty, name, cmc, pips)
     mana_perms: list[tuple[int, str, list[str]]] = []   # non-land mana permanents (Mox, dorks…)
     auto_cantrip_adj = 0.0
+    auto_cantrip_count = 0
+    auto_cantrip_list: list[tuple[int, str, float]] = []  # (qty, name, savings_per_copy)
 
     for qty, name in raw_cards:
         d = card_data.get(name)
@@ -386,7 +470,10 @@ def show_mana_check():
             parsed = _parse_mana_cost(mc)
             spells.append((qty, name, parsed["cmc"], parsed["pips"]))
             if name.lower() in CANTRIP_SAVINGS:
-                auto_cantrip_adj += qty * CANTRIP_SAVINGS[name.lower()]
+                savings_per_copy = CANTRIP_SAVINGS[name.lower()]
+                auto_cantrip_adj += qty * savings_per_copy
+                auto_cantrip_count += qty
+                auto_cantrip_list.append((qty, name, savings_per_copy))
             # Non-land permanents that produce colored mana count as sources
             # (Mox Diamond, Birds of Paradise, Chrome Mox, etc.)
             # Exclude Instants and Sorceries (Dark Ritual is one-shot, not a permanent source)
@@ -414,6 +501,21 @@ def show_mana_check():
 
     # Total mana sources = lands + mana permanents (Moxen etc. also pay generic mana)
     total_mana_sources = total_lands + sum(q for q, _, _ in mana_perms)
+
+    # Count basic lands separately — needed for alt-cost checks
+    # (Gush bouncing Islands, Foil pitching Island, Snuff Out pitching Swamp, etc.)
+    basic_lands = {"plains": 0, "island": 0, "swamp": 0, "mountain": 0, "forest": 0}
+    for qty, name, _ in lands:
+        key = name.lower().strip().replace("snow-covered ", "")
+        if key in basic_lands:
+            basic_lands[key] += qty
+
+    # Pre-compute count of spells per color, used by pitch-color alt costs
+    color_spell_count = {c: 0 for c in COLORS}
+    for q, _, _, p in spells:
+        for c in COLORS:
+            if p.get(c, 0) >= 0.5:
+                color_spell_count[c] += q
 
     spell_qty = sum(q for q, _, _, _ in spells)
     avg_cmc = sum(q * cmc for q, _, cmc, _ in spells) / spell_qty if spell_qty else 0
@@ -444,9 +546,27 @@ def show_mana_check():
         st.markdown(html_kpi_card("Recommended Lands", str(recommended)), unsafe_allow_html=True)
     with k4:
         st.markdown(html_kpi_card("Avg CMC (spells)", f"{avg_cmc:.2f}"), unsafe_allow_html=True)
-    cantrip_label = "Cantrip Savings (manual)" if manual_cantrips else "Cantrip Savings (auto)"
+    if manual_cantrips:
+        cantrip_label = "Cantrip Savings"
+        cantrip_value = f"−{cantrip_adj:.1f} ({cantrip_manual_value} cards · manual)"
+    else:
+        cantrip_label = "Cantrip Savings"
+        cantrip_value = f"−{cantrip_adj:.1f} ({auto_cantrip_count} cards)"
     with k5:
-        st.markdown(html_kpi_card(cantrip_label, f"−{cantrip_adj:.1f} lands"), unsafe_allow_html=True)
+        st.markdown(html_kpi_card(cantrip_label, cantrip_value), unsafe_allow_html=True)
+
+    if not manual_cantrips and auto_cantrip_list:
+        with st.expander(f"Detected cantrips ({auto_cantrip_count} copies, −{cantrip_adj:.2f} lands)"):
+            rows = "".join(
+                f"<tr><td style='padding:4px 10px;font-size:13px;'>{q}× {n}</td>"
+                f"<td style='padding:4px 10px;font-size:13px;color:{THEME['muted']};text-align:right;'>"
+                f"−{q*sv:.2f} lands ({sv} per copy)</td></tr>"
+                for q, n, sv in sorted(auto_cantrip_list, key=lambda x: -x[0]*x[2])
+            )
+            st.markdown(
+                f"<table style='width:100%;border-collapse:collapse;'>{rows}</table>",
+                unsafe_allow_html=True,
+            )
 
     # ── Color source check ────────────────────────────────────────────────────
     used_colors = [c for c in COLORS if any(p.get(c, 0) >= 0.5 for _, _, _, p in spells)]
@@ -537,9 +657,79 @@ def show_mana_check():
     _tgt = target_pct / 100
 
     table_rows = ""
+    never_cast_rows = ""
     for qty, name, cmc, pips in sorted(spells, key=lambda x: (x[2], x[1])):
         cmc_int = int(cmc)
         mc_html = mana_cost_html(pips, 15)
+        key = name.lower().strip()
+
+        # ── Alt-cost / never-cast branches (only when toggle is on) ─────────────
+        if use_alt_costs and key in NEVER_CAST:
+            never_cast_rows += (
+                f"<tr style='border-bottom:1px solid {_bg2};opacity:0.55;'>"
+                f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
+                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
+                f"<td style='padding:6px 10px;'>{mc_html}</td>"
+                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};font-style:italic;'>"
+                f"discard fodder</td>"
+                f"<td style='padding:6px 10px;font-size:12px;color:{_fnt};'>never cast</td>"
+                f"</tr>"
+            )
+            continue
+
+        if use_alt_costs and key in ALT_COST_HANDLERS:
+            handler = ALT_COST_HANDLERS[key]
+            alt_turn = handler.get("turn", max(1, cmc_int))
+            alt_cards_seen = min(7 + (alt_turn if on_draw else alt_turn - 1), int(deck_size))
+            alt_prob = 0.0
+            htype = handler["type"]
+
+            if htype == "land_in_play":
+                # Need N copies of the basic land in play by alt_turn.
+                K = basic_lands.get(handler["land"], 0)
+                alt_prob = _hypergeom_at_least(int(deck_size), K, alt_cards_seen, handler["count"])
+            elif htype == "land_in_hand":
+                # Need N copies in hand (beyond what you've played as land).
+                # Approximation: drew at least N + (alt_turn - 1) of that land — i.e. one
+                # extra survives in hand after each turn's natural land drop.
+                K = basic_lands.get(handler["land"], 0)
+                need = handler["count"] + max(0, alt_turn - 1)
+                alt_prob = _hypergeom_at_least(int(deck_size), K, alt_cards_seen, need)
+            elif htype == "pitch_color":
+                # Need a card of `color` in hand (other than this card itself).
+                # Approximation: at least N+1 cards of that color drawn (one is this spell).
+                color = handler["color"]
+                pip_qty = handler.get("count", 1) + qty  # +qty roughly for "self exclusion"
+                K = max(0, color_spell_count.get(color, 0))
+                alt_prob = _hypergeom_at_least(int(deck_size), K, alt_cards_seen, handler.get("count", 1) + 1)
+            elif htype == "free_if_no_land":
+                # Land Grant: free if no lands in hand. Approximation: P(0 lands in 7).
+                alt_prob = 1.0 - _hypergeom_at_least(int(deck_size), total_lands, 7, 1)
+            elif htype == "conditional":
+                # Submerge etc. — situational. Show as "depends".
+                alt_prob = float("nan")
+
+            label = handler["label"]
+            if alt_prob != alt_prob:  # NaN
+                prob_color, prob_text, bn = _mut, "depends", f"alt: {label}"
+            else:
+                prob_color = (THEME["success"] if alt_prob >= _tgt
+                              else THEME["warning"] if alt_prob >= _tgt - 0.10
+                              else THEME["danger"])
+                prob_text = f"{alt_prob:.1%}"
+                bn = f"alt: {label} (T{alt_turn})"
+
+            table_rows += (
+                f"<tr style='border-bottom:1px solid {_bg2};'>"
+                f"<td style='padding:6px 10px;font-size:14px;'>{qty}× {name}</td>"
+                f"<td style='padding:6px 10px;font-size:13px;color:{_mut};text-align:center;'>{cmc_int}</td>"
+                f"<td style='padding:6px 10px;'>{mc_html}</td>"
+                f"<td style='padding:6px 10px;font-size:15px;font-weight:700;color:{prob_color};'>"
+                f"{prob_text}</td>"
+                f"<td style='padding:6px 10px;font-size:12px;color:{_mut};'>{bn}</td>"
+                f"</tr>"
+            )
+            continue
 
         if cmc == 0:
             table_rows += (
@@ -631,9 +821,16 @@ def show_mana_check():
             f"<table style='width:100%;border-collapse:collapse;background:{_sur};"
             f"border-radius:8px;overflow:hidden;'>"
             f"<thead><tr>{header_html}</tr></thead>"
-            f"<tbody>{table_rows}</tbody></table>",
+            f"<tbody>{table_rows}{never_cast_rows}</tbody></table>",
             unsafe_allow_html=True,
         )
+        if use_alt_costs and (never_cast_rows or any(
+            n.lower().strip() in ALT_COST_HANDLERS for _, n, _, _ in spells
+        )):
+            st.caption(
+                "Alt-cost rows show probability of meeting the alternate cost resource "
+                "(e.g. having 2 Islands in play for Gush) by the earliest realistic turn."
+            )
 
     # ── Methodology ───────────────────────────────────────────────────────────
     with st.expander("Methodology"):

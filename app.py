@@ -82,7 +82,7 @@ def run_mana_check():
 pg_overview   = st.Page(run_meta_overview, title="Meta Overview",        default=True)
 pg_analysis   = st.Page(run_analysis,      title="Deck Analysis")
 pg_simulator  = st.Page(run_simulator,     title="Tournament Simulator")
-pg_mana_check = st.Page(run_mana_check,    title="Mana Check")
+pg_mana_check = st.Page(run_mana_check,    title="Mana Base Calculator")
 
 pg = st.navigation([pg_overview, pg_analysis, pg_simulator, pg_mana_check])
 
