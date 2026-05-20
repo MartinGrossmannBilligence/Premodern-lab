@@ -867,10 +867,10 @@ def show_mana_check():
         else:
             prob_color = THEME["danger"]
 
-        mana_label = "Mana sources" if mana_perms else "Lands"
+        mana_label = "Mana count" if mana_perms else "Land count"
         all_factors = {
             **({mana_label: land_prob} if generic_mana > 0 else {}),
-            **{COLOR_NAMES[c]: p for c, p in color_probs.items()},
+            **{f"{COLOR_NAMES[c]} sources": p for c, p in color_probs.items()},
         }
         bottleneck = min(all_factors, key=all_factors.get) if all_factors else mana_label
         bottleneck_pct = all_factors.get(bottleneck, 1.0)
