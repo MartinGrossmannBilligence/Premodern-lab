@@ -4,7 +4,6 @@ from src.analytics import load_period_data, calculate_expected_winrate
 from src.ui import apply_custom_css, THEME
 from src.pages.analysis import show_analysis
 from src.pages.meta_overview import show_meta_overview
-from src.pages.simulator import show_simulator
 from src.pages.mana_check import show_mana_check
 
 # ── 1. Page Config ────────────────────────────────────────────────────────────
@@ -72,18 +71,14 @@ def run_meta_overview():
     show_tier_filter = period_name not in ["6M", "3M", "2M", "1M", "9M", "1Y"]
     show_meta_overview(matrix_data, all_archetypes, records_data, DATA_DIR, TIMEFRAMES, tiers_dict, show_tier_filter)
 
-def run_simulator():
-    show_simulator(matrix_data, all_archetypes, records_data)
-
 def run_mana_check():
     show_mana_check()
 
 # ── 6. Navigation ─────────────────────────────────────────────────────────────
 pg_overview   = st.Page(run_meta_overview, title="Meta Overview",        default=True)
 pg_analysis   = st.Page(run_analysis,      title="Deck Analysis")
-pg_simulator  = st.Page(run_simulator,     title="Tournament Simulator")
 pg_mana_check = st.Page(run_mana_check,    title="Mana Base Calculator")
 
-pg = st.navigation([pg_overview, pg_analysis, pg_simulator, pg_mana_check])
+pg = st.navigation([pg_overview, pg_analysis, pg_mana_check])
 
 pg.run()
