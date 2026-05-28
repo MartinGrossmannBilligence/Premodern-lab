@@ -54,7 +54,16 @@ def get_circular_icon_b64(deck_name, data_dir="data", size=128):
 
 def html_deck_table(df, columns, deck_col="Deck", wr_col="Win Rate", data_dir="data"):
     """Render a dataframe as HTML table with deck icons and colored win rates."""
-    header = ''.join(f'<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #333;color:#8A8A8A;font-size:13px;">{c}</th>' for c in columns)
+    border_clr = THEME["border"]
+    faint_clr  = THEME["faint"]
+    muted_clr  = THEME["muted"]
+    surface_clr = THEME["surface"]
+    bg_clr     = THEME["bg"]
+    header = ''.join(
+        f'<th style="padding:6px 8px;text-align:left;border-bottom:1px solid {border_clr};'
+        f'color:{faint_clr};font-size:13px;">{c}</th>'
+        for c in columns
+    )
     rows = ''
     for _, row in df.iterrows():
         cells = ''
@@ -62,7 +71,11 @@ def html_deck_table(df, columns, deck_col="Deck", wr_col="Win Rate", data_dir="d
             val = str(row.get(c, ''))
             if c == deck_col:
                 b64 = get_icon_b64(val, data_dir)
-                img = f'<img src="data:image/jpeg;base64,{b64}" style="width:28px;height:20px;object-fit:cover;border-radius:3px;margin-right:6px;vertical-align:middle;border:1px solid #333;">' if b64 else ''
+                img = (
+                    f'<img src="data:image/jpeg;base64,{b64}" alt="{val}" '
+                    f'style="width:28px;height:20px;object-fit:cover;border-radius:3px;'
+                    f'margin-right:6px;vertical-align:middle;border:1px solid {border_clr};">'
+                ) if b64 else ''
                 cells += f'<td style="padding:5px 8px;font-size:14px;">{img}{val}</td>'
             elif c == wr_col:
                 try:
@@ -72,9 +85,13 @@ def html_deck_table(df, columns, deck_col="Deck", wr_col="Win Rate", data_dir="d
                 color = THEME['success'] if v > 0.55 else THEME['danger'] if v < 0.45 else THEME['warning'] if v < 0.50 else THEME['text']
                 cells += f'<td style="padding:5px 8px;font-size:14px;color:{color};font-weight:600;">{val}</td>'
             else:
-                cells += f'<td style="padding:5px 8px;font-size:14px;color:#AAA;">{val}</td>'
-        rows += f'<tr style="border-bottom:1px solid #222;">{cells}</tr>'
-    return f'<table style="width:100%;border-collapse:collapse;background:#1A1A1A;border-radius:8px;overflow:hidden;"><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>'
+                cells += f'<td style="padding:5px 8px;font-size:14px;color:{muted_clr};">{val}</td>'
+        rows += f'<tr style="border-bottom:1px solid {bg_clr};">{cells}</tr>'
+    return (
+        f'<table style="width:100%;border-collapse:collapse;background:{surface_clr};'
+        f'border-radius:8px;overflow:hidden;">'
+        f'<thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>'
+    )
 
 def html_kpi_card(label, value, color=None, help_text=None):
     """Render a colorized KPI card as HTML."""
@@ -82,14 +99,14 @@ def html_kpi_card(label, value, color=None, help_text=None):
     tooltip = f' title="{help_text}" style="cursor:help;"' if help_text else ''
     return f"""
     <div{tooltip} style="
-        background: #1A1A1A;
-        border: 1px solid #333;
+        background: {THEME['surface']};
+        border: 1px solid {THEME['border']};
         border-radius: 8px;
         padding: 12px 16px;
         text-align: center;
         height: 100%;
     ">
-        <div style="color: #8A8A8A; font-size: 12px; margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace;">{label}</div>
+        <div style="color: {THEME['faint']}; font-size: 12px; margin-bottom: 4px; font-family: 'IBM Plex Mono', monospace;">{label}</div>
         <div style="color: {color}; font-size: 22px; font-weight: 700;">{value}</div>
     </div>
     """
@@ -169,6 +186,14 @@ def apply_custom_css():
             margin-top: 0 !important;
             color: {THEME['text']} !important;
             letter-spacing: -1px !important;
+        }}
+
+        /* ── Page-level title (smaller than h1, used on each page) ───────── */
+        h1.page-title {{
+            font-size: 24px !important;
+            font-weight: 500 !important;
+            margin-bottom: 12px !important;
+            letter-spacing: -0.5px !important;
         }}
         h2 {{
             font-family: 'Inter', sans-serif !important;
@@ -451,6 +476,33 @@ def apply_custom_css():
         [data-testid="stSidebar"] div.stSegmentedControl {{
             display: flex;
             justify-content: center;
+        }}
+
+        /* ── Mobile responsive tweaks (≤ 768px) ──────────────────────────── */
+        @media (max-width: 768px) {{
+            .block-container {{
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+                padding-top: 16px !important;
+            }}
+            h1.page-title {{
+                font-size: 20px !important;
+            }}
+            /* Stack KPI metrics to 2 columns on mobile */
+            [data-testid="column"] {{
+                min-width: 45% !important;
+            }}
+            /* Decklist content grid: single column on mobile */
+            .d-content {{
+                grid-template-columns: 1fr !important;
+            }}
+            /* Decklist header/summary: hide less important cols on mobile */
+            .d-header, .d-summary {{
+                grid-template-columns: 60px 1fr 80px !important;
+            }}
+            .c-players, .c-event, .c-date, .c-spice {{
+                display: none !important;
+            }}
         }}
         </style>
     """, unsafe_allow_html=True)

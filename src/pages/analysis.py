@@ -3,24 +3,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from src.analytics import load_period_data, wilson_score_interval, calculate_polarity
-from src.ui import THEME, style_winrate
+from src.ui import THEME, style_winrate, get_icon_b64
 import os
 import json
-import base64
-
-_icon_cache = {}
-def _get_icon_b64(deck_name, data_dir="data"):
-    """Return base64-encoded JPEG art_crop for a deck (cached)."""
-    if deck_name in _icon_cache:
-        return _icon_cache[deck_name]
-    slug = deck_name.lower().replace(" ", "_").replace("/", "_").replace("'", "")
-    path = os.path.join(data_dir, "..", "assets", "deck_icons", f"{slug}.jpg")
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            _icon_cache[deck_name] = base64.b64encode(f.read()).decode()
-    else:
-        _icon_cache[deck_name] = None
-    return _icon_cache[deck_name]
 
 def _wr_color_str(wr_str):
     """Return CSS color for a formatted win rate string like '55.0%'."""
@@ -35,28 +20,46 @@ def _wr_color_str(wr_str):
 
 def _html_matchup_table(df, columns, data_dir="data"):
     """Render a matchup dataframe as an HTML table with deck icons."""
-    header = ''.join(f'<th style="padding:6px 8px; text-align:left; border-bottom:1px solid #333; color:#8A8A8A; font-size:13px;">{c}</th>' for c in columns)
+    border_clr  = THEME["border"]
+    faint_clr   = THEME["faint"]
+    muted_clr   = THEME["muted"]
+    surface_clr = THEME["surface"]
+    bg_clr      = THEME["bg"]
+    header = ''.join(
+        f'<th style="padding:6px 8px; text-align:left; border-bottom:1px solid {border_clr};'
+        f' color:{faint_clr}; font-size:13px;">{c}</th>'
+        for c in columns
+    )
     rows_html = ''
     for _, row in df.iterrows():
         cells = ''
         for c in columns:
             val = str(row.get(c, ''))
             if c == 'Opponent':
-                b64 = _get_icon_b64(val, data_dir)
-                img = f'<img src="data:image/jpeg;base64,{b64}" style="width:28px;height:20px;object-fit:cover;border-radius:3px;margin-right:6px;vertical-align:middle;border:1px solid #333;">' if b64 else ''
+                b64 = get_icon_b64(val, data_dir)
+                img = (
+                    f'<img src="data:image/jpeg;base64,{b64}" alt="{val}" '
+                    f'style="width:28px;height:20px;object-fit:cover;border-radius:3px;'
+                    f'margin-right:6px;vertical-align:middle;border:1px solid {border_clr};">'
+                ) if b64 else ''
                 cells += f'<td style="padding:5px 8px; font-size:14px;">{img}{val}</td>'
             elif c == 'Win Rate':
                 color = _wr_color_str(val)
                 cells += f'<td style="padding:5px 8px; font-size:14px; color:{color}; font-weight:600;">{val}</td>'
             else:
-                cells += f'<td style="padding:5px 8px; font-size:14px; color:#AAA;">{val}</td>'
-        rows_html += f'<tr style="border-bottom:1px solid #222;">{cells}</tr>'
-    return f'<table style="width:100%; border-collapse:collapse; background:#1A1A1A; border-radius:8px; overflow:hidden;"><thead><tr>{header}</tr></thead><tbody>{rows_html}</tbody></table>'
+                cells += f'<td style="padding:5px 8px; font-size:14px; color:{muted_clr};">{val}</td>'
+        rows_html += f'<tr style="border-bottom:1px solid {bg_clr};">{cells}</tr>'
+    return (
+        f'<table style="width:100%; border-collapse:collapse; background:{surface_clr};'
+        f' border-radius:8px; overflow:hidden;">'
+        f'<thead><tr>{header}</tr></thead><tbody>{rows_html}</tbody></table>'
+    )
 
 def _quality_badge(games):
-    if games >= 50: return "High"
+    """Return a sample quality label. High ≥50 games, Avg ≥20, Low <20."""
+    if games >= 50: return "High ✓"
     if games >= 20: return "Avg"
-    return "Low"
+    return "Low ⚠"
 
 def _style_wr_col(df, col="Win Rate"):
     """Safely apply win rate coloring compatible with both old and new pandas."""
@@ -66,7 +69,7 @@ def _style_wr_col(df, col="Win Rate"):
         return df.style.applymap(style_winrate, subset=[col])
 
 def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframes):
-    st.markdown('<h1 style="font-size: 24px;">Deck Analysis</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="page-title">Deck Analysis</h1>', unsafe_allow_html=True)
 
     # Preserve deck selection across timeframe changes
     try:
@@ -92,22 +95,26 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
             index=current_idx
         )
     with col_slider:
-        stats_min_games = st.slider("Min. games per deck", 0, 100, 5, key="analysis_min_games")
+        stats_min_games = st.slider(
+            "Min. games per matchup", 0, 100, 5, key="analysis_min_games",
+            help="Filtruje matchupy s malým vzorkem. Doporučeno ≥20 pro spolehlivé výsledky."
+        )
             
     st.session_state["analysis_saved_deck"] = target_deck
 
     with col_icon:
-        b64 = _get_icon_b64(target_deck, data_dir)
+        b64 = get_icon_b64(target_deck, data_dir)
         if b64:
+            _icon_border = THEME["border"]
             st.markdown(
                 f'<div style="margin-top:24px;">'
-                f'<img src="data:image/jpeg;base64,{b64}" style="width:56px; height:42px; object-fit:cover; border-radius:6px; border:1px solid #333;">'
+                f'<img src="data:image/jpeg;base64,{b64}" alt="{target_deck}" '
+                f'style="width:56px; height:42px; object-fit:cover; border-radius:6px; border:1px solid {_icon_border};">'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-    # matrix_dict is now the full matrix_data object
-    matchups_matrix = matrix_dict.get("matrix", matrix_dict) # fallback for old Duress files that are flat
+    matchups_matrix = matrix_dict.get("matrix", {})
     row_data        = matchups_matrix.get(target_deck, {})
     deck_record = next((r for r in records_data if r["archetype"] == target_deck), {})
     overall_wr  = deck_record.get("win_rate", 0)
@@ -194,7 +201,7 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
                 help=f"Spread of matchup win rates. {pct_rank}th percentile — {pct_label}.",
             )
 
-        st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
         st.markdown(
             "<h3>Win Rate &amp; Meta Share Trend "
@@ -307,7 +314,7 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
             )
             st.plotly_chart(fig_hist, use_container_width=True, key="deck_trend_combined", config={'displayModeBar': False})
 
-        st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
         # --- TOP 5 / WORST 5 ---
         col_best, col_worst = st.columns(2)
@@ -335,7 +342,7 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
         if not worst_matchups.empty:
             col_worst.markdown(_html_matchup_table(_prep(worst_matchups), ["Opponent", "Win Rate", "Games", "Record"], data_dir), unsafe_allow_html=True)
 
-        st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
         # --- FULL MATCHUP TABLE ---
         st.subheader("All Matchups")

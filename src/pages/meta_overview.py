@@ -4,6 +4,24 @@ import plotly.express as px
 from src.analytics import get_period_comparison, wilson_score_interval
 from src.ui import THEME, style_winrate, html_deck_table
 
+# Plotly config: minimální toolbar s možností stažení jako PNG
+_PLOTLY_DOWNLOAD_CONFIG = {
+    "displayModeBar": True,
+    "displaylogo": False,
+    "modeBarButtonsToRemove": [
+        "zoom2d", "pan2d", "select2d", "lasso2d",
+        "zoomIn2d", "zoomOut2d", "autoScale2d", "resetScale2d",
+    ],
+    "toImageButtonOptions": {
+        "format": "png",
+        "filename": "premodern_meta",
+        "height": 800,
+        "width": 1400,
+        "scale": 2,
+    },
+}
+_PLOTLY_NO_TOOLBAR = {"displayModeBar": False}
+
 def _style(df, col):
     try:
         return df.style.map(style_winrate, subset=[col])
@@ -13,7 +31,7 @@ def _style(df, col):
 def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, timeframes, tiers_dict=None, show_tier_filter=True):
     if tiers_dict is None: tiers_dict = {}
     # Header with title
-    st.markdown('<h1 style="font-size: 24px; margin-bottom: 12px;">Meta Overview</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="page-title">Meta Overview</h1>', unsafe_allow_html=True)
 
     # Tier filtering UI removed per user request. Show all decks by default.
     if not all_archetypes:
@@ -80,7 +98,7 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
             display_data["Recent Trend"] = display_data[last_p] 
             
             # Create text matrix for display
-            text_data = heatmap_data[existing].applymap(lambda x: f"{x:.1%}" if pd.notna(x) else "")
+            text_data = heatmap_data[existing].map(lambda x: f"{x:.1%}" if pd.notna(x) else "")
             text_data["Recent Trend"] = heatmap_data["Recent Trend"]
 
             # Create hover text
@@ -130,7 +148,7 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
             # Use columns for layout to make the chart narrower (centered)
             _, chart_col, _ = st.columns([0.2, 0.6, 0.2])
             with chart_col:
-                st.plotly_chart(fig_t, use_container_width=True, key=f"trend_chart_{key_suffix}", config={'displayModeBar': False})
+                st.plotly_chart(fig_t, use_container_width=True, key=f"trend_chart_{key_suffix}", config=_PLOTLY_NO_TOOLBAR)
 
     tab_stats, tab_matchups = st.tabs(["Metagame Stats", "Matchup Matrix & Trends"])
 
@@ -143,7 +161,10 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
         # Local filter for Tab 1
         _, f_col = st.columns([0.7, 0.3])
         with f_col:
-            stats_min_games = st.slider("Min. games per deck", 0, 100, 30, key="stats_min_tab1")
+            stats_min_games = st.slider(
+                "Min. games per deck", 0, 100, 30, key="stats_min_tab1",
+                help="Minimální počet zaznamenaných her pro zobrazení balíčku. Výchozí hodnota 30 zajišťuje statistickou spolehlivost."
+            )
 
         if records_data:
             df_rec = (
@@ -236,9 +257,9 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
                     yaxis=dict(tickformat=".0%", range=[y_min, y_max], fixedrange=True),
                     showlegend=False,
                 )
-                st.plotly_chart(fig_s, use_container_width=True, key="scatter_meta_winrate", config={'displayModeBar': False})
+                st.plotly_chart(fig_s, use_container_width=True, key="scatter_meta_winrate", config=_PLOTLY_NO_TOOLBAR)
 
-            st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
             c_top, c_bot = st.columns(2)
             
@@ -261,7 +282,7 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
                 d["Meta Share"] = d["Meta Share (Num)"].apply(lambda s: f"{s:.1%}" if s > 0 else "n/a")
                 st.markdown(html_deck_table(d, ["Deck", "Win Rate", "Meta Share", "Games"], data_dir=data_dir), unsafe_allow_html=True)
 
-            st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
             st.subheader("All Decks by Win Rate")
             d_all = df_rec.copy()
@@ -298,7 +319,10 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
         with f2:
             sort_by = st.selectbox("Sort By", ["Win Rate", "Alphabet"], key="overview_sort")
         with f3:
-            matrix_min_games = st.slider("Min. games per deck", 0, 100, 5, key="stats_min_tab2")
+            matrix_min_games = st.slider(
+                "Min. games per deck", 0, 100, 5, key="stats_min_tab2",
+                help="Buňky matchup matice s méně hrami než tento práh se zobrazí jako prázdné (nedostatek dat)."
+            )
 
         if not selected_decks:
             st.warning("Select at least one deck.")
@@ -315,7 +339,7 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
 
         if not decks_for_matrix:
             st.info("No decks match the current filters.")
-            st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
             _draw_trend_chart(selected_decks)
             return
 
@@ -358,9 +382,9 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
             customdata=hover_data,
             hoverlabel=dict(font_size=14, font_family="IBM Plex Mono")
         )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_DOWNLOAD_CONFIG)
 
-        st.markdown('<div style="margin: 8px 0 12px 0; border-top: 1px solid #222222;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="margin: 8px 0 12px 0; border-top: 1px solid {THEME["border"]};"></div>', unsafe_allow_html=True)
 
         # ─── WIN RATE TRENDS ─────────────────────────────────────────────
         _draw_trend_chart(selected_decks, key_suffix="matrix")

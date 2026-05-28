@@ -3,162 +3,82 @@ import numpy as np
 import json
 import os
 from scipy.stats import norm
+import streamlit as st
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_period_data(data_dir, period):
-    if period.startswith("mtgdecks_matrix"):
-        matrix_path = os.path.join(data_dir, f"{period}.json")
-        with open(matrix_path, 'r', encoding='utf-8') as f:
-            matrix_data = json.load(f)
-            
-        # Targetted Merge: combine "Oath Control" into "Oath" for MTGDecks data
-        if "matrix" in matrix_data:
-            m = matrix_data["matrix"]
-            if "Oath Control" in m:
-                o_ctrl = m.pop("Oath Control")
-                if "Oath" not in m: m["Oath"] = {}
-                # Merge matchups
-                for opp, stats in o_ctrl.items():
-                    if opp not in m["Oath"]:
-                        m["Oath"][opp] = stats
-                    else:
-                        e = m["Oath"][opp]
-                        e["wins"] += stats.get("wins", 0)
-                        e["losses"] += stats.get("losses", 0)
-                        e["total_matches"] += stats.get("total_matches", 0)
-                        if e["total_matches"] > 0:
-                            e["win_rate"] = (e["wins"] + e.get("draws", 0)*0.5) / e["total_matches"]
-            
-            # Update archetypes list to remove "Oath Control" if merged
-            if "archetypes" in matrix_data:
-                matrix_data["archetypes"] = [a for a in matrix_data["archetypes"] if a != "Oath Control"]
-                if "Oath" not in matrix_data["archetypes"]:
-                    # In case it was missing but has a matrix entry
-                    matrix_data["archetypes"].append("Oath")
-                    matrix_data["archetypes"].sort()
+    matrix_path = os.path.join(data_dir, f"{period}.json")
+    with open(matrix_path, 'r', encoding='utf-8') as f:
+        matrix_data = json.load(f)
 
-            # Also merge as opponents
-            for arch in m:
-                matchups = m[arch]
-                if "Oath Control" in matchups:
-                    stats = matchups.pop("Oath Control")
-                    if "Oath" not in matchups:
-                        matchups["Oath"] = stats
-                    else:
-                        e = matchups["Oath"]
-                        e["wins"] += stats.get("wins", 0)
-                        e["losses"] += stats.get("losses", 0)
-                        e["total_matches"] += stats.get("total_matches", 0)
-                        if e["total_matches"] > 0:
-                            e["win_rate"] = (e["wins"] + e.get("draws", 0)*0.5) / e["total_matches"]
-
-        records_data = []
-        for arch, matchups in matrix_data.get("matrix", {}).items():
-            wins, losses, draws, matches = 0, 0, 0, 0
-            for opp, stats in matchups.items():
-                wins += stats.get("wins", 0)
-                losses += stats.get("losses", 0)
-                matches += stats.get("total_matches", 0)
-            if matches > 0:
-                records_data.append({
-                    "archetype": arch,
-                    "wins": wins,
-                    "losses": losses,
-                    "draws": draws,
-                    "total_matches": matches,
-                    "win_rate": (wins + draws*0.5) / matches
-                })
-    else:
-        matrix_path = os.path.join(data_dir, f"archetype_matrix_{period}.json")
-        records_path = os.path.join(data_dir, f"win_loss_records_{period}.json")
-        
-        with open(matrix_path, 'r', encoding='utf-8') as f:
-            matrix_data = json.load(f)
-        
-        with open(records_path, 'r', encoding='utf-8') as f:
-            records_data = json.load(f)
-            
-        # Apply DURESS_TO_MTGDECKS mapping for local duress files
-        from src.mappings import DURESS_TO_MTGDECKS
-        import copy
-        
-        mapped_archetypes = []
-        for a in matrix_data.get('archetypes', []):
-            mapped_archetypes.append(DURESS_TO_MTGDECKS.get(a, a))
-        matrix_data['archetypes'] = sorted(list(set(mapped_archetypes)))
-        
-        mapped_matrix = {}
-        for old_arch, opps in matrix_data.get('matrix', {}).items():
-            new_arch = DURESS_TO_MTGDECKS.get(old_arch, old_arch)
-            if new_arch not in mapped_matrix: mapped_matrix[new_arch] = {}
-            
-            for old_opp, stats in opps.items():
-                new_opp = DURESS_TO_MTGDECKS.get(old_opp, old_opp)
-                
-                # Combine stats if multiple old map to same new
-                if new_opp not in mapped_matrix[new_arch]:
-                    new_stats = copy.deepcopy(stats)
-                    new_stats['archetype'] = new_opp
-                    mapped_matrix[new_arch][new_opp] = new_stats
+    # Merge "Oath Control" into "Oath"
+    if "matrix" in matrix_data:
+        m = matrix_data["matrix"]
+        if "Oath Control" in m:
+            o_ctrl = m.pop("Oath Control")
+            if "Oath" not in m:
+                m["Oath"] = {}
+            for opp, stats in o_ctrl.items():
+                if opp not in m["Oath"]:
+                    m["Oath"][opp] = stats
                 else:
-                    existing = mapped_matrix[new_arch][new_opp]
-                    existing['wins'] += stats.get('wins', 0)
-                    existing['losses'] += stats.get('losses', 0)
-                    existing['draws'] += stats.get('draws', 0)
-                    existing['total_matches'] += stats.get('total_matches', 0)
-                    if existing['total_matches'] > 0:
-                        existing['win_rate'] = (existing['wins'] + existing['draws']*0.5) / existing['total_matches']
-                        
-        matrix_data['matrix'] = mapped_matrix
-        
-        # Merge records that map to the same new archetype name
-        merged_records = {}
-        for rec in records_data:
-            new_name = DURESS_TO_MTGDECKS.get(rec.get('archetype'), rec.get('archetype'))
-            if new_name in merged_records:
-                merged_records[new_name]['wins'] += rec.get('wins', 0)
-                merged_records[new_name]['losses'] += rec.get('losses', 0)
-                merged_records[new_name]['draws'] += rec.get('draws', 0)
-                merged_records[new_name]['total_matches'] += rec.get('total_matches', 0)
-                t = merged_records[new_name]['total_matches']
-                if t > 0:
-                    merged_records[new_name]['win_rate'] = (merged_records[new_name]['wins'] + merged_records[new_name]['draws'] * 0.5) / t
-            else:
-                merged_records[new_name] = dict(rec)
-                merged_records[new_name]['archetype'] = new_name
-        records_data = list(merged_records.values())
+                    e = m["Oath"][opp]
+                    e["wins"] += stats.get("wins", 0)
+                    e["losses"] += stats.get("losses", 0)
+                    e["total_matches"] += stats.get("total_matches", 0)
+                    if e["total_matches"] > 0:
+                        e["win_rate"] = (e["wins"] + e.get("draws", 0)*0.5) / e["total_matches"]
 
-    # Override meta shares and tiers using mtgdecks data for relevant periods
-    if period.startswith("mtgdecks_matrix"):
-        mtg_data = matrix_data # Already loaded
-    else:
-        mtgdecks_path = os.path.join(data_dir, f"mtgdecks_matrix_{period}.json")
-        if os.path.exists(mtgdecks_path):
-            with open(mtgdecks_path, "r", encoding="utf-8") as mf:
-                mtg_data = json.load(mf)
-        else:
-            mtg_data = {}
+        if "archetypes" in matrix_data:
+            matrix_data["archetypes"] = [a for a in matrix_data["archetypes"] if a != "Oath Control"]
+            if "Oath" not in matrix_data["archetypes"]:
+                matrix_data["archetypes"].append("Oath")
+                matrix_data["archetypes"].sort()
 
-    if mtg_data:
-        # Targeted Merge for Meta Shares and Tiers
-        if "meta_shares" in mtg_data:
-            shares = mtg_data["meta_shares"]
-            if "Oath Control" in shares:
-                o_ctrl_share = shares.pop("Oath Control")
-                shares["Oath"] = shares.get("Oath", 0) + o_ctrl_share
-            matrix_data["meta_shares"] = shares
-        if "tiers" in mtg_data:
-            tiers = mtg_data["tiers"]
-            if "Oath Control" in tiers:
-                o_ctrl_tier = tiers.pop("Oath Control")
-                if "Oath" not in tiers or o_ctrl_tier < tiers["Oath"]:
-                    tiers["Oath"] = o_ctrl_tier
-            matrix_data["tiers"] = tiers
+        for arch in m:
+            matchups = m[arch]
+            if "Oath Control" in matchups:
+                stats = matchups.pop("Oath Control")
+                if "Oath" not in matchups:
+                    matchups["Oath"] = stats
+                else:
+                    e = matchups["Oath"]
+                    e["wins"] += stats.get("wins", 0)
+                    e["losses"] += stats.get("losses", 0)
+                    e["total_matches"] += stats.get("total_matches", 0)
+                    if e["total_matches"] > 0:
+                        e["win_rate"] = (e["wins"] + e.get("draws", 0)*0.5) / e["total_matches"]
 
-    # Normalize meta shares to UPPERCASE keys
+    records_data = []
+    for arch, matchups in matrix_data.get("matrix", {}).items():
+        wins, losses, draws, matches = 0, 0, 0, 0
+        for opp, stats in matchups.items():
+            wins += stats.get("wins", 0)
+            losses += stats.get("losses", 0)
+            matches += stats.get("total_matches", 0)
+        if matches > 0:
+            records_data.append({
+                "archetype": arch,
+                "wins": wins,
+                "losses": losses,
+                "draws": draws,
+                "total_matches": matches,
+                "win_rate": (wins + draws*0.5) / matches
+            })
+
+    # Merge "Oath Control" in meta_shares and tiers
     if "meta_shares" in matrix_data:
-        matrix_data["meta_shares"] = {k.upper(): v for k, v in matrix_data["meta_shares"].items()}
+        shares = matrix_data["meta_shares"]
+        if "Oath Control" in shares:
+            shares["Oath"] = shares.get("Oath", 0) + shares.pop("Oath Control")
+        matrix_data["meta_shares"] = {k.upper(): v for k, v in shares.items()}
 
-    return matrix_data, records_data
+    if "tiers" in matrix_data:
+        tiers = matrix_data["tiers"]
+        if "Oath Control" in tiers:
+            o_ctrl_tier = tiers.pop("Oath Control")
+            if "Oath" not in tiers or o_ctrl_tier < tiers["Oath"]:
+                tiers["Oath"] = o_ctrl_tier
 
     return matrix_data, records_data
 

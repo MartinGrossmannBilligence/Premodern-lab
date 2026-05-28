@@ -5,10 +5,10 @@ import re
 import streamlit as st
 
 @st.cache_data(ttl=86400, show_spinner="Fetching latest decks from mtgdecks.net...")
-def get_recent_top_decks(archetype_name):
+def get_recent_top_decks(archetype_name, limit=20):
     """
-    Scrape mtgdecks.net for the given archetype and return up to 10 recent decklists
-    from tournaments with >= 50 players where the deck made Top 8.
+    Scrape mtgdecks.net for the given archetype and return up to `limit` recent decklists
+    from tournaments with >= 16 players where the deck made Top 8.
     """
     
     # Map typical names to mtgdecks slugs
@@ -36,7 +36,7 @@ def get_recent_top_decks(archetype_name):
     top_decks = []
     valid_ranks = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "top 4", "top 8", "1", "2", "3", "4", "5", "6", "7", "8", "top4", "top8"]
     
-    for page in range(1, 6):
+    for page in range(1, 11):
         url = f"https://mtgdecks.net/Premodern/{slug}/page:{page}"
         
         try:
@@ -128,18 +128,24 @@ def get_recent_top_decks(archetype_name):
                         losses = int(match_record.group(2))
                         draws = int(match_record.group(3)) if match_record.group(3) else 0
                         total_rounds = wins + losses + draws
-                        
+
                         if total_rounds >= 8: players = 129
                         elif total_rounds == 7: players = 65
                         elif total_rounds == 6: players = 33
                         elif total_rounds == 5: players = 17
                         elif total_rounds == 4: players = 9
                         elif total_rounds == 3: players = 4
-                        # Also, if they have a strong winning record like "5-0", they essentially won the tournament or league
-                        if wins >= 3 and losses == 0:
+                        # Strong winning record = top finish
+                        # e.g. 5-0, 8-1, 7-1 — win rate >= 80% with at least 4 rounds
+                        if losses == 0 and wins >= 3:
                             is_top_8 = True
-                
-                if players >= 50 and is_top_8:
+                        elif total_rounds >= 5 and wins / total_rounds >= 0.80:
+                            is_top_8 = True
+                    elif is_top_8:
+                        # Rank like "1st"/"2nd" but no player count — treat as small event (~16)
+                        players = 16
+
+                if players >= 16 and is_top_8:
                     top_decks.append({
                         "player": player,
                         "rank": rank_text,
@@ -151,14 +157,14 @@ def get_recent_top_decks(archetype_name):
                         "url": "https://mtgdecks.net" + deck_url if not deck_url.startswith('http') else deck_url
                     })
                     
-                if len(top_decks) >= 10:
+                if len(top_decks) >= limit:
                     break
-                    
+
             except Exception as e:
                 print(f"Error parsing row: {e}")
                 continue
-                
-        if len(top_decks) >= 10:
+
+        if len(top_decks) >= limit:
             break
 
     # If nothing was found, output a warning for debugging purposes
