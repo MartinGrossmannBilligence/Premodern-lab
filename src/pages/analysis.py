@@ -96,7 +96,7 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
         )
     with col_slider:
         stats_min_games = st.slider(
-            "Min. games per deck", 0, 100, 5, key="analysis_min_games",
+            "Min. games per matchup", 0, 100, 5, key="analysis_min_games",
             help="Filtruje matchupy s malým vzorkem. Doporučeno ≥20 pro spolehlivé výsledky."
         )
             
