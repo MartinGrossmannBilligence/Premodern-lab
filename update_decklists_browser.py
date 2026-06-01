@@ -206,11 +206,21 @@ def main():
     print("=" * 60)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=200)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
+        # Try CDP first (connect to existing Chrome with --remote-debugging-port=9222)
+        # This reuses your real Chrome session + cookies, bypassing Cloudflare.
+        try:
+            browser = p.chromium.connect_over_cdp("http://localhost:9222")
+            context = browser.contexts[0]
+            page = context.pages[0] if context.pages else context.new_page()
+            print("Connected to existing Chrome via CDP (port 9222).")
+        except Exception:
+            # Fallback: launch own Chromium
+            print("CDP not available — launching own Chromium (Cloudflare may appear).")
+            browser = p.chromium.launch(headless=False, slow_mo=200)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
 
         # Warm up — visit homepage so user can solve any initial challenge
         print("\nOpening mtgdecks.net — solve any Cloudflare challenge in the browser...")
