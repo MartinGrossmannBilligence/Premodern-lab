@@ -248,6 +248,7 @@ def main():
     prev_folder_name = (first_of_current - timedelta(days=1)).strftime('%Y-%m-01')
     prev_60_path = os.path.join(HISTORICAL_DIR, prev_folder_name, "mtgdecks_matrix_60_days.json")
 
+    data_90 = None
     if "30_days" in all_data and os.path.exists(prev_60_path):
         try:
             with open(prev_60_path, 'r', encoding='utf-8') as f:
@@ -273,34 +274,41 @@ def main():
     else:
         print(f"  [!] Skipped — prev backup not found at {prev_60_path}")
 
-    # Synthesize 210_days = prev month 180_days + current 30_days
+    # Synthesize 210_days = 3-months-ago 180_days + current 90_days (~9 real months, no overlap)
     print("\nSynthesizing 210_days...")
-    prev_180_path = os.path.join(HISTORICAL_DIR, prev_folder_name, "mtgdecks_matrix_180_days.json")
+    # 3 kalendářní měsíce zpět od aktuálního měsíce
+    three_ago = first_of_current
+    for _ in range(3):
+        three_ago = (three_ago - timedelta(days=1)).replace(day=1)
+    old_folder_name = three_ago.strftime('%Y-%m-01')
+    old_180_path = os.path.join(HISTORICAL_DIR, old_folder_name, "mtgdecks_matrix_180_days.json")
 
-    if "30_days" in all_data and os.path.exists(prev_180_path):
+    if data_90 is not None and os.path.exists(old_180_path):
         try:
-            with open(prev_180_path, 'r', encoding='utf-8') as f:
-                prev_180 = json.load(f)
-            cur_30 = all_data["30_days"]
+            with open(old_180_path, 'r', encoding='utf-8') as f:
+                old_180 = json.load(f)
             data_210 = {
                 "time_frame": "210_days",
                 "end_date": end_date_str,
-                "archetypes": sorted(set(prev_180.get("archetypes", []) + cur_30.get("archetypes", []))),
+                "archetypes": sorted(set(old_180.get("archetypes", []) + data_90.get("archetypes", []))),
                 "tiers": tiers,
-                "matrix": merge_matrices(prev_180.get("matrix", {}), cur_30.get("matrix", {})),
+                "matrix": merge_matrices(old_180.get("matrix", {}), data_90.get("matrix", {})),
                 "meta_shares": merge_meta_shares(
-                    [prev_180.get("meta_shares", {}), cur_30.get("meta_shares", {})],
-                    [prev_180.get("matrix", {}), cur_30.get("matrix", {})]
+                    [old_180.get("meta_shares", {}), data_90.get("meta_shares", {})],
+                    [old_180.get("matrix", {}), data_90.get("matrix", {})]
                 ),
             }
             save(data_210, os.path.join(output_historical_dir, "mtgdecks_matrix_210_days.json"))
             if not args.no_replace:
                 save(data_210, os.path.join(DATA_DIR, "mtgdecks_matrix_210_days.json"))
-            print(f"  -> OK (merged {prev_folder_name}/180_days + current 30_days)")
+            print(f"  -> OK (merged {old_folder_name}/180_days + current 90_days)")
         except Exception as e:
             print(f"  [!] Error: {e}")
     else:
-        print(f"  [!] Skipped — prev backup not found at {prev_180_path}")
+        if data_90 is None:
+            print("  [!] Skipped — current 90_days synthesis unavailable")
+        else:
+            print(f"  [!] Skipped — 3M-ago backup not found at {old_180_path}")
 
     print("\nUpdate complete.")
 
