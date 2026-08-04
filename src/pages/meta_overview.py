@@ -162,8 +162,8 @@ def show_meta_overview(matrix_dict, all_archetypes, records_data, data_dir, time
         _, f_col = st.columns([0.7, 0.3])
         with f_col:
             stats_min_games = st.slider(
-                "Min. games per deck", 0, 100, 30, key="stats_min_tab1",
-                help="Minimální počet zaznamenaných her pro zobrazení balíčku. Výchozí hodnota 30 zajišťuje statistickou spolehlivost."
+                "Min. games per deck", 0, 200, 50, key="stats_min_tab1",
+                help="Minimální počet zaznamenaných her pro zobrazení balíčku. Výchozí hodnota 50 zajišťuje statistickou spolehlivost."
             )
 
         if records_data:

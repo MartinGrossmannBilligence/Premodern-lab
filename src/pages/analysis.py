@@ -155,7 +155,8 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
         else "stable — consistent matchup profile across the field"
     )
 
-    tab_stats, tab_decks = st.tabs(["Statistics", "Top Decklists"])
+    # "Top Decklists" tab dočasně skryto (prozatím) — pro obnovení vrátit dva taby a `with tab_decks:` níže
+    (tab_stats,) = st.tabs(["Statistics"])
 
     with tab_stats:
 
@@ -357,7 +358,7 @@ def show_analysis(matrix_dict, all_archetypes, records_data, data_dir, timeframe
 
 
 
-    with tab_decks:
+    if False:  # tab_decks — "Top Decklists" dočasně skryto (prozatím)
 
         decklists_file = os.path.join(data_dir, "decklists.json")
         decks = []
