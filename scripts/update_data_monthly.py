@@ -1,3 +1,4 @@
+import sys
 import json
 import re
 import os
@@ -28,8 +29,19 @@ HEADERS = {
 }
 
 
-def fetch_html(url):
-    print(f"  Fetching: {url}")
+CDP_URL = "http://localhost:9222"
+
+CHROME_HINT = (
+    "Spust Chrome s CDP portem a proklikej Cloudflare na mtgdecks.net:\n"
+    '      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
+    '--remote-debugging-port=9222 --user-data-dir="C:\\Temp\\ChromeDebug"'
+)
+
+# Naplni se v main() pri --browser; drzi otevrenou Playwright session.
+_BROWSER_PAGE = None
+
+
+def fetch_html_urllib(url):
     try:
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -40,6 +52,30 @@ def fetch_html(url):
     except Exception as e:
         print(f"  [!] Error fetching {url}: {e}")
         return None
+
+
+def fetch_html_browser(url):
+    """Fetch pres existujici Chrome session (CDP), ktera uz ma vyreseny Cloudflare."""
+    try:
+        _BROWSER_PAGE.goto(url, wait_until='domcontentloaded', timeout=45000)
+        # Cloudflare interstitial muze chvili viset; dej mu cas se prepnout.
+        for _ in range(15):
+            content = _BROWSER_PAGE.content()
+            if 'Just a moment' not in content and 'challenge' not in _BROWSER_PAGE.url:
+                return content
+            time.sleep(2)
+        print(f"  [!] Cloudflare challenge neprosel u {url}")
+        return None
+    except Exception as e:
+        print(f"  [!] Error fetching {url}: {e}")
+        return None
+
+
+def fetch_html(url):
+    print(f"  Fetching: {url}")
+    if _BROWSER_PAGE is not None:
+        return fetch_html_browser(url)
+    return fetch_html_urllib(url)
 
 
 def get_tiers():
@@ -217,19 +253,54 @@ def main():
     parser = argparse.ArgumentParser(description='MTGDecks Monthly Data Update')
     parser.add_argument('--no-replace', action='store_true', help='Do not overwrite root data files, only create historical backup')
     parser.add_argument('--date', help='Override current date for folder naming, e.g. 2026-05-01')
+    parser.add_argument('--browser', action='store_true',
+                        help='Fetch pres bezici Chrome (CDP :9222) misto urllib — obchazi Cloudflare')
     args = parser.parse_args()
 
     current_date = datetime.strptime(args.date, '%Y-%m-%d') if args.date else datetime.now()
     folder_name = current_date.strftime('%Y-%m-01')
     end_date_str = current_date.strftime('%Y-%m-%d')
+    # Slozka se zaklada az pred prvnim zapisem, aby neuspesny run nenechal prazdny adresar.
     output_historical_dir = os.path.join(HISTORICAL_DIR, folder_name)
-    os.makedirs(output_historical_dir, exist_ok=True)
 
     print(f"Starting monthly update for {folder_name} (end_date={end_date_str})")
     if args.no_replace:
         print("!!! NO-REPLACE MODE — root data files will NOT be updated !!!")
-    print("VPN must be active (MTGDecks blocks requests without VPN).\n")
 
+    playwright = browser = None
+    if args.browser:
+        global _BROWSER_PAGE
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            print("[!] FATAL: playwright neni nainstalovany (pip install playwright).")
+            sys.exit(1)
+        playwright = sync_playwright().start()
+        try:
+            browser = playwright.chromium.connect_over_cdp(CDP_URL)
+        except Exception as e:
+            print(f"[!] FATAL: nelze se pripojit na Chrome CDP ({CDP_URL}): {e}")
+            print(f"    {CHROME_HINT}")
+            playwright.stop()
+            sys.exit(1)
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        _BROWSER_PAGE = ctx.pages[0] if ctx.pages else ctx.new_page()
+        print(f"Fetch mode: BROWSER (CDP {CDP_URL})\n")
+    else:
+        print("Fetch mode: urllib — VPN must be active (MTGDecks blocks requests without VPN).")
+        print("Pokud vraci 403, pouzij --browser.\n")
+
+    try:
+        run_update(args, folder_name=folder_name, end_date_str=end_date_str,
+                   current_date=current_date, output_historical_dir=output_historical_dir)
+    finally:
+        if browser is not None:
+            browser.close()
+        if playwright is not None:
+            playwright.stop()
+
+
+def run_update(args, folder_name, end_date_str, current_date, output_historical_dir):
     tiers = get_tiers()
     print(f"  -> {len(tiers)} archetypes with tiers\n")
 
@@ -248,6 +319,14 @@ def main():
             label, tiers, end_date_str
         )
 
+        # Fail fast: prazdny matrix I prazdne meta shares = fetch selhal (403,
+        # Cloudflare, vypadla VPN). Bez teto pojistky se prazdna data ulozi pres
+        # dobra a tiche je prepisou.
+        if not data and not meta_shares:
+            print(f"  [!] FATAL: {label} nema ani matrix, ani meta shares — fetch selhal.")
+            print("      Zadna data se nezapisuji. Zkontroluj VPN / Cloudflare a spust znovu.")
+            sys.exit(1)
+
         if not data:
             data = {
                 "time_frame": label,
@@ -260,6 +339,7 @@ def main():
         data["meta_shares"] = meta_shares
         all_data[label] = data
 
+        os.makedirs(output_historical_dir, exist_ok=True)
         hist_path = os.path.join(output_historical_dir, f"mtgdecks_matrix_{label}.json")
         save(data, hist_path)
 
