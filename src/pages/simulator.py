@@ -4,17 +4,30 @@ import plotly.express as px
 from src.analytics import calculate_expected_winrate
 from src.ui import THEME, style_winrate, html_deck_table
 
+_PLOTLY_NO_TOOLBAR = {"displayModeBar": False}
+
 def show_simulator(matrix_dict, all_archetypes, records_data):
-    st.markdown('<h1 style="font-size: 24px;">Tournament Simulator</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="page-title">Tournament Simulator</h1>', unsafe_allow_html=True)
 
-    st.subheader("1. Field Composition")
-    st.caption("Set expected share (%) for each deck. Remaining % auto-assigned to Other Decks. (Defaults pre-filled based on real meta shares)")
+    hdr_col, f_col = st.columns([0.7, 0.3])
+    with hdr_col:
+        st.subheader("1. Field Composition")
+        st.caption("Set expected share (%) for each deck. Remaining % auto-assigned to Other Decks. (Defaults pre-filled based on real meta shares)")
+    with f_col:
+        sim_min_games = st.slider(
+            "Min. games per deck", 0, 200, 50, key="sim_min_games",
+            help="Vyšší práh zajistí přesnější EV výpočty. Balíčky pod tímto prahem jsou ze simulace vynechány."
+        )
 
-    # Get the top decks by total matches, filtering out unknowns, and inject user-requested specific decks
+    # Build a lookup: archetype -> total_matches for quick filtering
+    games_lookup = {r["archetype"]: r.get("total_matches", 0) for r in records_data}
+
+    # Get the top decks by total matches, filtering out unknowns and below min. games threshold,
+    # and inject user-requested specific decks
     top_decks = []
     for r in sorted(records_data, key=lambda x: x.get("total_matches", 0), reverse=True):
         arch = r["archetype"]
-        if "unknown" not in arch.lower():
+        if "unknown" not in arch.lower() and r.get("total_matches", 0) >= sim_min_games:
             top_decks.append(arch)
         if len(top_decks) >= 8:
             break
@@ -35,9 +48,10 @@ def show_simulator(matrix_dict, all_archetypes, records_data):
     meta_shares = {}
     total_assigned = 0
 
-    cols = st.columns(4)
+    # 3 sloupce pro lepší čitelnost na menších obrazovkách (tablet/mobil)
+    cols = st.columns(3)
     for i, deck in enumerate(top_decks):
-        with cols[i % 4]:
+        with cols[i % 3]:
             # Get real share, fallback to 10/5 if missing
             default_share_pct = real_meta_shares.get(deck)
             if default_share_pct is None:
@@ -53,7 +67,7 @@ def show_simulator(matrix_dict, all_archetypes, records_data):
             total_assigned += share
 
     # Put Other Decks on a dedicated row
-    st.markdown('<div style="margin: 20px 0 10px 0; border-top: 1px solid #222222; padding-top: 10px;"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="margin: 20px 0 10px 0; border-top: 1px solid {THEME["border"]}; padding-top: 10px;"></div>', unsafe_allow_html=True)
     remaining = max(0, 100 - total_assigned)
     if total_assigned > 100:
         st.error(f"⚠️ **Other Decks: 0%** — Total exceeds 100% by {total_assigned - 100}%. Results will be normalized automatically.")
@@ -72,7 +86,12 @@ def show_simulator(matrix_dict, all_archetypes, records_data):
         with st.spinner("Simulating..."):
             # matrix_dict is now the full matrix_data object
             matchups_matrix = matrix_dict.get("matrix", matrix_dict)
-            evs = calculate_expected_winrate(meta_shares, matchups_matrix, all_archetypes)
+            # Filter archetypes by min. games threshold for EV output
+            filtered_archetypes = [
+                a for a in all_archetypes
+                if games_lookup.get(a, 0) >= sim_min_games
+            ]
+            evs = calculate_expected_winrate(meta_shares, matchups_matrix, filtered_archetypes)
             ev_df = pd.DataFrame(list(evs.items()), columns=["Deck", "Projected Win Rate"])
             # Remove "Unknown" deck from the output pool before ranking
             ev_df = ev_df[ev_df["Deck"] != "Unknown"]
