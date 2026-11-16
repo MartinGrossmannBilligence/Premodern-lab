@@ -1,7 +1,8 @@
 """
-Přegeneruje 210_days (9M) pro daný snapshot novou konstrukcí, bez scrapování.
+Přegeneruje 210_days (9M) pro daný snapshot aktuální konstrukcí (build_210), bez scrapování.
 
-    210_days = current 180_days + (3M-ago 180_days - 3M-ago 90_days)
+    210_days = current 180_days + 6M-ago 90_days            (preferováno)
+             = current 180_days + (3M-ago 180_days - 3M-ago 90_days)   (fallback)
 
 Vstupy se čtou z data/historical/, takže nevyžaduje VPN ani síť.
 
@@ -11,13 +12,12 @@ import os
 import sys
 import json
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.update_data_monthly import (  # noqa: E402
-    DATA_DIR, HISTORICAL_DIR, merge_matrices, subtract_matrices,
-    merge_meta_shares, total_matches_in_matrix, save,
+    DATA_DIR, HISTORICAL_DIR, build_210, total_matches_in_matrix, save,
 )
 
 
@@ -39,37 +39,22 @@ def main():
     folder_name = snapshot.strftime('%Y-%m-01')
     snap_dir = os.path.join(HISTORICAL_DIR, folder_name)
 
-    three_ago = snapshot.replace(day=1)
-    for _ in range(3):
-        three_ago = (three_ago - timedelta(days=1)).replace(day=1)
-    old_folder = three_ago.strftime('%Y-%m-01')
-    old_dir = os.path.join(HISTORICAL_DIR, old_folder)
-
     cur_180 = load(os.path.join(snap_dir, 'mtgdecks_matrix_180_days.json'))
-    old_180 = load(os.path.join(old_dir, 'mtgdecks_matrix_180_days.json'))
-    old_90 = load(os.path.join(old_dir, 'mtgdecks_matrix_90_days.json'))
+    end_date = cur_180.get('end_date', snapshot.strftime('%Y-%m-%d'))
 
-    tail = subtract_matrices(old_180.get('matrix', {}), old_90.get('matrix', {}))
-
-    data_210 = {
-        "time_frame": "210_days",
-        "end_date": cur_180.get('end_date', snapshot.strftime('%Y-%m-%d')),
-        "archetypes": sorted(set(cur_180.get('archetypes', []) + old_180.get('archetypes', []))),
-        "tiers": cur_180.get('tiers', {}),
-        "matrix": merge_matrices(cur_180.get('matrix', {}), tail),
-        "meta_shares": merge_meta_shares(
-            [cur_180.get('meta_shares', {}), old_180.get('meta_shares', {})],
-            [cur_180.get('matrix', {}), tail]
-        ),
-    }
+    try:
+        data_210, source = build_210(cur_180, snapshot.replace(day=1), cur_180.get('tiers', {}), end_date)
+    except FileNotFoundError as e:
+        print(f"  [!] {e}")
+        return 1
 
     cur_total = total_matches_in_matrix(cur_180.get('matrix', {}))
     new_total = total_matches_in_matrix(data_210['matrix'])
 
-    print(f"Snapshot {folder_name}  (starsi zdroj: {old_folder})")
-    print(f"  current 180d              = {cur_total:7}")
-    print(f"  tail (old 180d - old 90d) = {total_matches_in_matrix(tail):7}")
-    print(f"  novy 210d                 = {new_total:7}")
+    print(f"Snapshot {folder_name}  (zdroj ctvrtleti: {source})")
+    print(f"  current 180d = {cur_total:7}")
+    print(f"  tail         = {new_total - cur_total:7}")
+    print(f"  novy 210d    = {new_total:7}")
 
     violations = sum(
         1
@@ -77,7 +62,7 @@ def main():
         for opp, s in row.items()
         if data_210['matrix'].get(arch, {}).get(opp, {}).get('total_matches', 0) < s.get('total_matches', 0)
     )
-    print(f"  bunek s 9M < 6M           = {violations}")
+    print(f"  bunek s 9M < 6M = {violations}")
 
     if violations or new_total < cur_total:
         print("  [!] INVARIANT 9M >= 6M PORUSEN - nic se nezapisuje")

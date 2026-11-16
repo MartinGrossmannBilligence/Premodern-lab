@@ -249,6 +249,69 @@ def save(data, path):
         json.dump(data, f, indent=4)
 
 
+def months_back(first_of_month, n):
+    d = first_of_month.replace(day=1)
+    for _ in range(n):
+        d = (d - timedelta(days=1)).replace(day=1)
+    return d
+
+
+def _load_json(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def build_210(cur_180, first_of_current, tiers, end_date_str):
+    """210_days (9M) = current 180_days + exkluzivni starsi ctvrtleti S-9..S-6.
+
+    Okna vuci aktualnimu snapshotu S:
+      current 180_days      : S-6 .. S
+      6M-ago   90_days      : S-9 .. S-6   <- preferovany zdroj ctvrtleti (primo, bez odcitani)
+      3M-ago  180_days      : S-9 .. S-3
+      3M-ago   90_days      : S-6 .. S-3
+      3M-ago (180d - 90d)   : S-9 .. S-6   <- fallback, kdyz 6M-ago snapshot chybi
+
+    Proc primarne 6M-ago/90d: v 07-09/2026 vracel MTGDecks pro range:last180days
+    fallback okno (~1Y) misto 6 mesicu, takze odecet 180d - 90d z techto snapshotu
+    dava ~9 mesicu ocasu misto jednoho ctvrtleti. 90d je vzdy syntezou z 30/60d
+    stranek, ktere reálne okno drzi. Obe konstrukce pricitaji k current 180d
+    nezaporny zbytek, takze 9M >= 6M plati na kazde bunce.
+
+    Vraci (data_210, popis_zdroje). Vyhodi FileNotFoundError, kdyz chybi oba zdroje.
+    """
+    six_ago = months_back(first_of_current, 6).strftime('%Y-%m-01')
+    three_ago = months_back(first_of_current, 3).strftime('%Y-%m-01')
+    six_90_path = os.path.join(HISTORICAL_DIR, six_ago, "mtgdecks_matrix_90_days.json")
+    old_180_path = os.path.join(HISTORICAL_DIR, three_ago, "mtgdecks_matrix_180_days.json")
+    old_90_path = os.path.join(HISTORICAL_DIR, three_ago, "mtgdecks_matrix_90_days.json")
+
+    if os.path.exists(six_90_path):
+        tail_src = _load_json(six_90_path)
+        tail_matrix = tail_src.get("matrix", {})
+        source = f"{six_ago}/90_days"
+    elif os.path.exists(old_180_path) and os.path.exists(old_90_path):
+        old_180 = _load_json(old_180_path)
+        tail_src = old_180
+        tail_matrix = subtract_matrices(old_180.get("matrix", {}), _load_json(old_90_path).get("matrix", {}))
+        source = f"{three_ago}/[180_days - 90_days] (fallback)"
+    else:
+        raise FileNotFoundError(f"chybi {six_90_path} i {old_180_path}/{old_90_path}")
+
+    data_210 = {
+        "time_frame": "210_days",
+        "end_date": end_date_str,
+        "archetypes": sorted(set(cur_180.get("archetypes", []) + tail_src.get("archetypes", []))),
+        "tiers": tiers,
+        "matrix": merge_matrices(cur_180.get("matrix", {}), tail_matrix),
+        # Meta shares zdroje ctvrtleti vazene objemem jeho zapasu.
+        "meta_shares": merge_meta_shares(
+            [cur_180.get("meta_shares", {}), tail_src.get("meta_shares", {})],
+            [cur_180.get("matrix", {}), tail_matrix]
+        ),
+    }
+    return data_210, source
+
+
 def main():
     parser = argparse.ArgumentParser(description='MTGDecks Monthly Data Update')
     parser.add_argument('--no-replace', action='store_true', help='Do not overwrite root data files, only create historical backup')
@@ -381,68 +444,27 @@ def run_update(args, folder_name, end_date_str, current_date, output_historical_
     else:
         print(f"  [!] Skipped — prev backup not found at {prev_60_path}")
 
-    # Synthesize 210_days = current 180_days + exkluzivní starší čtvrtletí (~9 real months, no overlap)
-    #
-    # Okna vůči aktuálnímu snapshotu S:
-    #   current 180_days       : S-6 .. S
-    #   3M-ago  180_days       : S-9 .. S-3
-    #   3M-ago   90_days       : S-6 .. S-3
-    #   3M-ago (180_days - 90_days) = S-9 .. S-6   <- exkluzivní starší čtvrtletí
-    #   => 210_days = S-9 .. S
-    #
-    # Dřívější varianta skládala 3M-ago 180_days + current 90_days. Okno bylo
-    # správné, ale pro posledních 6 měsíců čerpala z řídkých stránek 30/60d
-    # místo z husté 180d, takže 9M mohlo vyjít níž než 6M. Tato konstrukce staví
-    # na current 180_days a přičítá nezáporný zbytek, takže 9M >= 6M platí
-    # na každé buňce.
+    # Synthesize 210_days = current 180_days + exkluzivni starsi ctvrtleti, viz build_210()
     print("\nSynthesizing 210_days...")
-    # 3 kalendářní měsíce zpět od aktuálního měsíce
-    three_ago = first_of_current
-    for _ in range(3):
-        three_ago = (three_ago - timedelta(days=1)).replace(day=1)
-    old_folder_name = three_ago.strftime('%Y-%m-01')
-    old_180_path = os.path.join(HISTORICAL_DIR, old_folder_name, "mtgdecks_matrix_180_days.json")
-    old_90_path = os.path.join(HISTORICAL_DIR, old_folder_name, "mtgdecks_matrix_90_days.json")
     cur_180 = all_data.get("180_days")
-
-    if cur_180 and os.path.exists(old_180_path) and os.path.exists(old_90_path):
+    if not cur_180:
+        print("  [!] Skipped - current 180_days unavailable")
+    else:
         try:
-            with open(old_180_path, 'r', encoding='utf-8') as f:
-                old_180 = json.load(f)
-            with open(old_90_path, 'r', encoding='utf-8') as f:
-                old_90 = json.load(f)
-
-            tail_matrix = subtract_matrices(old_180.get("matrix", {}), old_90.get("matrix", {}))
-
-            data_210 = {
-                "time_frame": "210_days",
-                "end_date": end_date_str,
-                "archetypes": sorted(set(cur_180.get("archetypes", []) + old_180.get("archetypes", []))),
-                "tiers": tiers,
-                "matrix": merge_matrices(cur_180.get("matrix", {}), tail_matrix),
-                # Pro starší čtvrtletí nemáme vlastní meta shares (vznikly odečtem),
-                # proto se použijí shares 3M-ago 180_days, vážené objemem zbytku.
-                "meta_shares": merge_meta_shares(
-                    [cur_180.get("meta_shares", {}), old_180.get("meta_shares", {})],
-                    [cur_180.get("matrix", {}), tail_matrix]
-                ),
-            }
+            data_210, source = build_210(cur_180, first_of_current, tiers, end_date_str)
             save(data_210, os.path.join(output_historical_dir, "mtgdecks_matrix_210_days.json"))
             if not args.no_replace:
                 save(data_210, os.path.join(DATA_DIR, "mtgdecks_matrix_210_days.json"))
 
             cur_total = total_matches_in_matrix(cur_180.get("matrix", {}))
             new_total = total_matches_in_matrix(data_210["matrix"])
-            print(f"  -> OK (current 180_days + {old_folder_name}/[180_days - 90_days])")
+            print(f"  -> OK (current 180_days + {source})")
             print(f"     180d={cur_total} 210d={new_total} "
                   f"{'OK' if new_total >= cur_total else '[!] INVARIANT 9M>=6M PORUSEN'}")
+        except FileNotFoundError as e:
+            print(f"  [!] Skipped - {e}")
         except Exception as e:
             print(f"  [!] Error: {e}")
-    else:
-        if not cur_180:
-            print("  [!] Skipped — current 180_days unavailable")
-        else:
-            print(f"  [!] Skipped — 3M-ago backup incomplete ({old_180_path} / {old_90_path})")
 
     print("\nUpdate complete.")
 
