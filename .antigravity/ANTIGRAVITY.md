@@ -42,7 +42,8 @@ Internal data keys for `app.py`:
 
 ### Co se fetchuje vs. syntetizuje
 *   **Přímo fetchováno**: `30_days`, `60_days`, `180_days`
-*   **Syntetizováno**: `90_days` = prev_60_days + cur_30_days; `210_days` = prev_180_days + cur_30_days
+*   **Syntetizováno**: `90_days` = prev_60_days + cur_30_days; `210_days` = cur_180_days + 6M-starý 90_days (`build_210()` v `update_data_monthly.py`, od 2026-11-16; fallback 3M-starý 180d - 90d)
+*   **MTGDecks fetch od 10/2026**: jen `--browser` (Chrome CDP) a VPN zapnutá před startem Chrome; urllib dostává 403 všude
 *   Syntéza čte z `data/historical/[předchozí měsíc]/`
 
 ### Data Structure (`matrix_data`)

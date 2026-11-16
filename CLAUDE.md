@@ -82,8 +82,10 @@ test_scraper.py             # CLI test scraperu (urllib, vyžaduje VPN)
 
 ### Co scraper fetchuje přímo vs. co se syntetizuje
 - **Fetchováno přímo**: `30_days`, `60_days`, `180_days`
-- **Syntetizováno**: `90_days` = prev_60_days + cur_30_days; `210_days` = prev_180_days + cur_30_days
-- Syntéza čte z `data/historical/[předchozí měsíc]/`
+- **Syntetizováno**: `90_days` = prev_60_days + cur_30_days; `210_days` = cur_180_days + 90_days snapshotu starého 6 měsíců (`build_210()`, fallback: 3M-starý 180d - 90d)
+- Syntéza čte z `data/historical/[předchozí měsíc]/` resp. `[před 6 měsíci]/`
+- **MTGDecks umí jen range 30/60/180**; jiný range tiše vrátí velké fallback okno (ne chybu). V 07-09/2026 to vracel i pro 180d, takže ty snapshoty nejsou 6M okna.
+- `scripts/resynthesize_210.py --date YYYY-MM-01 [--dry-run]` přepočítá 9M z disku bez sítě
 
 ### Dvě datové vrstvy
 - **Duress layer**: manuální tourney exporty → `archetype_matrix_*.json`, `win_loss_records_*.json`
@@ -99,16 +101,18 @@ test_scraper.py             # CLI test scraperu (urllib, vyžaduje VPN)
 - **403 bez VPN**: `mtgdecks_scraper.py` (urllib) vrací 403 bez VPN; `update_decklists_browser.py` (Playwright) obchází Cloudflare přes existující Chrome session
 
 ## Workflow pro měsíční update (vždy 1. dne měsíce)
-1. **Zapnout VPN**
-2. Spustit Chrome s CDP portem:
+1. **Zapnout VPN** - nutně PŘED spuštěním Chrome. Bez VPN je domácí IP u Cloudflare tvrdě blokovaná ("Sorry, you have been blocked", nejde proklikat); s VPN se stránka načte bez klikání.
+2. Záloha: `data/mtgdecks_matrix_*.json` -> `data_backups/pre_YYYY-MM-01/`
+3. Spustit Chrome s CDP portem (z PowerShellu `Start-Process`, ne z bash `&`):
    ```bash
-   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Temp\ChromeDebug"
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Temp\ChromeDebug" https://mtgdecks.net/Premodern/winrates/range:last30days
    ```
-3. Otevřít `mtgdecks.net`, proklikat Cloudflare CAPTCHU
-4. Spustit matrix update:
+   Ověřit: `curl -s http://127.0.0.1:9222/json/list | grep title` nesmí být "Attention Required".
+4. Spustit matrix update (urllib bez `--browser` dostává 403 na všechno):
    ```bash
-   python scripts/update_data_monthly.py
+   python scripts/update_data_monthly.py --browser --date YYYY-MM-01
    ```
+   Stahuje 7 stránek (~1 min). Při selhání fetche nic nezapíše (`925c511`).
 5. (Volitelně) Update decklists přes browser:
    ```bash
    python update_decklists_browser.py
